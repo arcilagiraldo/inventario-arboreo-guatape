@@ -205,6 +205,7 @@ textarea{resize:vertical;min-height:64px;line-height:1.5;}
   <div class="view" id="view-mapa" style="overflow:hidden;position:relative;">
     <div class="map-controls">
       <button class="map-btn active" onclick="setMapFilter('todos',this)">Todos</button>
+      <button class="map-btn" onclick="setMapFilter('malecon',this)" style="color:#5bc8f5">🌊 Malecón</button>
       <button class="map-btn" onclick="setMapFilter('critico',this)" style="color:var(--danger)">🔴 Críticos</button>
       <button class="map-btn" onclick="setMapFilter('riesgo',this)" style="color:var(--warning)">🟡 Riesgo</button>
       <button class="map-btn" onclick="setMapFilter('sano',this)" style="color:var(--ok)">🟢 Sanos</button>
@@ -340,6 +341,7 @@ textarea{resize:vertical;min-height:64px;line-height:1.5;}
         <button class="chip" onclick="setChip('critico',this)">🚨 Críticos</button>
         <button class="chip" onclick="setChip('riesgo',this)">⚠️ Riesgo</button>
         <button class="chip" onclick="setChip('sano',this)">✅ Sanos</button>
+        <button class="chip" onclick="setChip('malecon',this)">🌊 Malecón</button>
         <button class="chip" onclick="setChip('sin_gps',this)">📍 Sin GPS</button>
       </div>
       <div class="tree-list" id="tree-list"></div>
@@ -587,6 +589,10 @@ const CLIENT_ID='816604671065-jereo81atfpm4lkh2imgtesa2lp0a0vp.apps.googleuserco
 const FOLDER_ID='1Rs6ahTfZjJ4IKkLcClQgUiTUp9s0lkA7';
 const CENTER=[6.2308,-75.1592];
 const SECTORES={ML:'Malecón San Juan del Puerto',AM:'Antiguo Malecón',PQ:'Parque de los Patos',HP:'Parque Frente al Hospital',CD:'Centro Día Gerontológico',AS:'El Asilo',PP:'Parque Principal',RE:'El Recreo',CA:'Zona Deportiva',AR:'Sector Araucarias'};
+const SECTOR_GRUPOS={
+  'Malecón':['ML','AM'],
+  'Parques y Zonas Verdes':['PQ','HP','CD','AS','PP','RE','CA','AR']
+};
 const ESPECIES=['Chirlo Virlo','Arrayán','Cedro','Senna Siamea','Guayacán','Cotoneaster Pannosus','Yarumo','Pino Romerón','Chagualo','Guayabo','Siete Cueros','Uvito','Coralillo','Aliso','Guamo','Palma Cola de Zorro','Drago (Croton)','Callistemon','Sarro','Palo de María','Magnolia','Colorín Amarillo','Carbonero','Sapote de Sevilla','Palma McArthur','Cajeto','Evano','Magnolia Figo','Guayabo Jaboticaba','Palma Payanesa','Guayacán Rosado','Chaflera','Eugenios','Balso','Azalea','San Joaquín','Guayacán Nativo','Palma','Tulipán Africano','Chachafruto','Magnolio','Ceiba','Acacia','Palma Reina','Chirlovirlo','Urapán','Cinco Dedos','Flor de Mayo','Níspero','Guayabo Nativo'];
 
 
@@ -645,7 +651,27 @@ function updateDash(){
   }
   const sg=document.getElementById('sector-grid');
   const sc={};a.forEach(x=>{sc[x.sector]=(sc[x.sector]||0)+1;});
-  sg.innerHTML=Object.entries(SECTORES).map(([k,v])=>`<div class="sector-row"><span class="sector-name">${v}</span><span class="sector-count">${sc[k]||0} árbol${(sc[k]||0)!==1?'es':''}</span></div>`).join('');
+  
+  let sgHtml = '';
+  Object.entries(SECTOR_GRUPOS).forEach(([grupo, codes])=>{
+    const total = codes.reduce((sum,k)=>(sum+(sc[k]||0)),0);
+    sgHtml += `<div style="background:rgba(122,182,72,.08);border:1px solid rgba(122,182,72,.2);border-radius:10px;margin-bottom:8px;overflow:hidden">
+      <div style="padding:8px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(122,182,72,.1)">
+        <span style="font-size:.82rem;font-weight:700;color:var(--lime)">${grupo}</span>
+        <span class="sector-count">${total} árbol${total!==1?'es':''}</span>
+      </div>`;
+    codes.forEach(k=>{
+      if(sc[k]||0){
+        sgHtml += `<div class="sector-row" style="border-radius:0;border:none;border-bottom:1px solid rgba(122,182,72,.06);padding-left:24px">
+          <span class="sector-name" style="font-size:.78rem">↳ ${SECTORES[k]}</span>
+          <span class="sector-count">${sc[k]} árbol${sc[k]!==1?'es':''}</span>
+        </div>`;
+      }
+    });
+    sgHtml += '</div>';
+  });
+  sg.innerHTML = sgHtml;
+
 }
 
 // MAPA
@@ -667,7 +693,7 @@ function refreshMarkers(){
   if(!mapInst)return;
   mapMarkers.forEach(m=>mapInst.removeLayer(m));mapMarkers=[];
   const all=getA().filter(a=>a.lat&&a.lng);
-  const f=mapF==='todos'?all:all.filter(a=>a.estado===mapF);
+  const f=mapF==='todos'?all:mapF==='malecon'?all.filter(a=>a.sector==='ML'||a.sector==='AM'):all.filter(a=>a.estado===mapF);
   f.forEach(a=>{
     const c=mc(a.estado);
     const ico=L.divIcon({className:'',html:`<div style="width:26px;height:26px;border-radius:50%;background:${c};border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:11px;cursor:pointer">🌳</div>`,iconSize:[26,26],iconAnchor:[13,13]});
@@ -795,6 +821,7 @@ function renderList(){
   if(activeChip==='critico')f=f.filter(a=>a.estado==='critico');
   else if(activeChip==='riesgo')f=f.filter(a=>a.estado==='riesgo');
   else if(activeChip==='sano')f=f.filter(a=>a.estado==='sano');
+  else if(activeChip==='malecon')f=f.filter(a=>a.sector==='ML'||a.sector==='AM');
   else if(activeChip==='sin_gps')f=f.filter(a=>!a.lat||!a.lng);
   if(q)f=f.filter(a=>(a.nombre||'').toLowerCase().includes(q)||(a.id||'').toLowerCase().includes(q)||(SECTORES[a.sector]||'').toLowerCase().includes(q));
   const el=document.getElementById('tree-list');
@@ -876,7 +903,12 @@ function buildExcel(){
   const r2=i.map(x=>{const t=a.find(y=>y.id===x.aid)||{};return[x.id,x.aid,SECTORES[t.sector]||t.sector,t.nombre,x.fecha,x.tipo,x.obs,x.resp];});
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([h2,...r2]),'Intervenciones');
   const h3=['Sector','Total','Sanos','Riesgo','Críticos','Sin Estado','Con GPS'];
-  const r3=Object.entries(SECTORES).map(([k,v])=>{const s=a.filter(x=>x.sector===k);return[v,s.length,s.filter(x=>x.estado==='sano').length,s.filter(x=>x.estado==='riesgo').length,s.filter(x=>x.estado==='critico').length,s.filter(x=>!x.estado).length,s.filter(x=>x.lat&&x.lng).length];});
+  const r3=[];
+  Object.entries(SECTOR_GRUPOS).forEach(([grupo,codes])=>{
+    const gs=a.filter(x=>codes.includes(x.sector));
+    r3.push([grupo+' (TOTAL)',gs.length,gs.filter(x=>x.estado==='sano').length,gs.filter(x=>x.estado==='riesgo').length,gs.filter(x=>x.estado==='critico').length,gs.filter(x=>!x.estado).length,gs.filter(x=>x.lat&&x.lng).length]);
+    codes.forEach(k=>{const s=a.filter(x=>x.sector===k);r3.push(['  ↳ '+SECTORES[k],s.length,s.filter(x=>x.estado==='sano').length,s.filter(x=>x.estado==='riesgo').length,s.filter(x=>x.estado==='critico').length,s.filter(x=>!x.estado).length,s.filter(x=>x.lat&&x.lng).length]);});
+  });
   const wsInfo = XLSX.utils.aoa_to_sheet([
     ['Inventario Arbóreo en el Espacio Público'],
     ['Municipio de Guatapé, Antioquia'],
