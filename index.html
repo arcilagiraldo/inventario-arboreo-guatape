@@ -652,25 +652,25 @@ function updateDash(){
   const sg=document.getElementById('sector-grid');
   const sc={};a.forEach(x=>{sc[x.sector]=(sc[x.sector]||0)+1;});
   
-  let sgHtml = '';
-  Object.entries(SECTOR_GRUPOS).forEach(([grupo, codes])=>{
-    const total = codes.reduce((sum,k)=>(sum+(sc[k]||0)),0);
-    sgHtml += `<div style="background:rgba(122,182,72,.08);border:1px solid rgba(122,182,72,.2);border-radius:10px;margin-bottom:8px;overflow:hidden">
-      <div style="padding:8px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(122,182,72,.1)">
-        <span style="font-size:.82rem;font-weight:700;color:var(--lime)">${grupo}</span>
-        <span class="sector-count">${total} árbol${total!==1?'es':''}</span>
-      </div>`;
-    codes.forEach(k=>{
-      if(sc[k]||0){
-        sgHtml += `<div class="sector-row" style="border-radius:0;border:none;border-bottom:1px solid rgba(122,182,72,.06);padding-left:24px">
-          <span class="sector-name" style="font-size:.78rem">↳ ${SECTORES[k]}</span>
-          <span class="sector-count">${sc[k]} árbol${sc[k]!==1?'es':''}</span>
-        </div>`;
-      }
-    });
-    sgHtml += '</div>';
+  let sgHtml='';
+  Object.entries(SECTOR_GRUPOS).forEach(([grupo,codes])=>{
+    const total=codes.reduce((sum,k)=>sum+(sc[k]||0),0);
+    const subfilas=codes.map(k=>{
+      const cnt=sc[k]||0;
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px 7px 26px;border-top:1px solid rgba(122,182,72,.07)">'
+        +'<span style="font-size:.76rem;color:rgba(232,240,232,.65)">↳ '+SECTORES[k]+'</span>'
+        +'<span style="background:rgba(122,182,72,.1);color:var(--lime);border-radius:20px;padding:2px 9px;font-size:.68rem;font-weight:700">'+cnt+' árbol'+(cnt!==1?'es':'')+'</span>'
+        +'</div>';
+    }).join('');
+    sgHtml+='<div style="background:rgba(45,74,45,.4);border:1px solid rgba(122,182,72,.2);border-radius:10px;margin-bottom:10px;overflow:hidden">'
+      +'<div style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center;background:rgba(122,182,72,.08)">'
+      +'<span style="font-size:.85rem;font-weight:700;color:var(--lime)">'+grupo+'</span>'
+      +'<span style="background:var(--lime);color:var(--forest);border-radius:20px;padding:3px 11px;font-size:.72rem;font-weight:700">'+total+' total</span>'
+      +'</div>'
+      +subfilas
+      +'</div>';
   });
-  sg.innerHTML = sgHtml;
+  sg.innerHTML=sgHtml;
 
 }
 
