@@ -593,7 +593,7 @@ textarea{resize:vertical;min-height:64px;line-height:1.5;}
 <div class="toast" id="toast"></div>
 <script src="https://accounts.google.com/gsi/client"></script>
 <script>
-const CLIENT_ID='816604671065-a2p2ikpiuns4cd8773gtbsq4q4q3qcum.apps.googleusercontent.com';
+const CLIENT_ID='988747898790-tlb1j75qs538nm25nmter81e2jpbh44k.apps.googleusercontent.com';
 const SHEET_ID='1O1AKPSIXganmfIC7BWqkKr6znrdc9k4LngOI9yTYPII';
 const SCOPES_FULL='https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/spreadsheets';
 // Correos con permiso de edición
@@ -1120,8 +1120,94 @@ document.addEventListener('DOMContentLoaded',()=>{
   // Google auth
   window.addEventListener('load',()=>setTimeout(()=>{if(typeof google!=='undefined'&&google.accounts)setupAuth();},800));
 });
-function saveToSheets(){
-  alert("Botón funcionando");
+// Verifica si el usuario autenticado es editor autorizado
+async function checkEditorPermission(){
+  try{
+    const r=await fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+accessToken}});
+    const u=await r.json();
+    userEmail=u.email||'';
+    isEditor=EDITORES.map(e=>e.toLowerCase()).includes(userEmail.toLowerCase());
+    const dot=document.getElementById('auth-dot');
+    const txt=document.getElementById('auth-text');
+    if(dot)dot.style.background=isEditor?'var(--ok)':'var(--lime)';
+    if(txt)txt.textContent=isEditor?'✅ Conectado como editor: '+userEmail:'👁 Conectado (solo lectura): '+userEmail;
+    addLog(isEditor?'✅ Editor autorizado: '+userEmail:'👁 Acceso de lectura: '+userEmail,'ok');
+  }catch(e){
+    addLog('⚠ No se pudo verificar el usuario: '+e.message,'err');
+    isEditor=false;
+  }
+}
+
+// Guarda datos en Google Sheets (crea el spreadsheet si no existe) y también en Drive como Excel
+async function saveToSheets(){
+  if(!accessToken){window._ps=true;doAuth();return;}
+  if(!isEditor){showToast('Solo los editores autorizados pueden guardar','err');return;}
+  addLog('📊 Guardando en Google Sheets...','info');
+  showToast('Guardando en Sheets...','info');
+  try{
+    // 1. Obtener o crear el spreadsheet
+    let sid=localStorage.getItem('gtp_sheet_id')||'';
+    if(sid){
+      // Verificar que sigue existiendo
+      const chk=await fetch('https://sheets.googleapis.com/v4/spreadsheets/'+sid+'?fields=spreadsheetId',{headers:{Authorization:'Bearer '+accessToken}});
+      if(!chk.ok)sid='';
+    }
+    if(!sid){
+      // Crear nuevo spreadsheet en la carpeta Drive
+      const meta={name:'Inventario_Arboreo_Espacio_Publico_Guatape',mimeType:'application/vnd.google-apps.spreadsheet',parents:[document.getElementById('folder-id')?.value||FOLDER_ID]};
+      const fd=new FormData();
+      fd.append('metadata',new Blob([JSON.stringify(meta)],{type:'application/json'}));
+      const cr=await fetch('https://www.googleapis.com/drive/v3/files?fields=id',{method:'POST',headers:{Authorization:'Bearer '+accessToken},body:fd});
+      if(!cr.ok)throw new Error((await cr.json()).error?.message||cr.statusText);
+      const cf=await cr.json();
+      sid=cf.id;
+      localStorage.setItem('gtp_sheet_id',sid);
+      addLog('📄 Spreadsheet creado en Drive: '+sid,'ok');
+    }
+
+    // 2. Asegurar hojas necesarias
+    const meta2=await (await fetch('https://sheets.googleapis.com/v4/spreadsheets/'+sid,{headers:{Authorization:'Bearer '+accessToken}})).json();
+    const existing=(meta2.sheets||[]).map(s=>s.properties.title);
+    const needed=['Árboles','Intervenciones','Resumen'];
+    const toAdd=needed.filter(n=>!existing.includes(n));
+    if(toAdd.length){
+      await fetch('https://sheets.googleapis.com/v4/spreadsheets/'+sid+':batchUpdate',{
+        method:'POST',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},
+        body:JSON.stringify({requests:toAdd.map(t=>({addSheet:{properties:{title:t}}}))})
+      });
+    }
+
+    // 3. Escribir datos en cada hoja
+    const a=getA(),i=getI();
+    const h1=['ID','Sector','Nombre Común','Nombre Científico','Familia','Origen','Altura (m)','DAP (cm)','Copa (m²)','Fecha Siembra','Estado','Patología','Última Poda','Tipo Intervención','Latitud','Longitud','Observaciones','Registrado Por','Fecha Registro'];
+    const r1=a.map(x=>[x.id,SECTORES[x.sector]||x.sector,x.nombre,x.cientifico,x.familia,x.origen,x.altura,x.dap,x.copa,x.siembra,x.estado,x.patologia,x.poda,x.tipo_interv,x.lat,x.lng,x.obs,x.usuario,x.fecha?new Date(x.fecha).toLocaleString('es-CO'):'']);
+    const h2=['ID','ID Árbol','Sector','Especie','Fecha','Tipo','Observaciones','Responsable'];
+    const r2=i.map(x=>{const t=a.find(y=>y.id===x.aid)||{};return[x.id,x.aid,SECTORES[t.sector]||t.sector,t.nombre,x.fecha,x.tipo,x.obs,x.resp];});
+    const h3=['Sector','Total','Sanos','Riesgo','Críticos','Sin Estado','Con GPS'];
+    const r3=[];
+    r3.push(['RESUMEN GENERAL',a.length,a.filter(x=>x.estado==='sano').length,a.filter(x=>x.estado==='riesgo').length,a.filter(x=>x.estado==='critico').length,a.filter(x=>!x.estado).length,a.filter(x=>x.lat&&x.lng).length]);
+    Object.entries(SECTORES).forEach(([k,v])=>{const s=a.filter(x=>x.sector===k);r3.push([v,s.length,s.filter(x=>x.estado==='sano').length,s.filter(x=>x.estado==='riesgo').length,s.filter(x=>x.estado==='critico').length,s.filter(x=>!x.estado).length,s.filter(x=>x.lat&&x.lng).length]);});
+
+    async function writeSheet(sheetName,rows){
+      await fetch('https://sheets.googleapis.com/v4/spreadsheets/'+sid+'/values/'+encodeURIComponent(sheetName)+'!A1:Z5000:clear',{method:'POST',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},body:JSON.stringify({})});
+      await fetch('https://sheets.googleapis.com/v4/spreadsheets/'+sid+'/values/'+encodeURIComponent(sheetName)+'!A1?valueInputOption=RAW',{method:'PUT',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},body:JSON.stringify({values:rows})});
+    }
+    await writeSheet('Árboles',[h1,...r1]);
+    await writeSheet('Intervenciones',[h2,...r2]);
+    await writeSheet('Resumen',[h3,...r3]);
+
+    addLog('✅ Sheets actualizado: '+a.length+' árboles, '+i.length+' intervenciones','ok');
+    showToast('✅ Guardado en Google Sheets','ok');
+    localStorage.setItem('last_sync',new Date().toISOString());
+    updateSummary();
+
+    // 4. También guardar Excel en Drive
+    await doSync();
+
+  }catch(e){
+    addLog('❌ Sheets: '+e.message,'err');
+    showToast('Error Sheets: '+e.message,'err');
+  }
 }
 </script>
 </body>
