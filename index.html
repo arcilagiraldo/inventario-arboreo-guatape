@@ -1223,42 +1223,42 @@ function getGPS() {
 }
 
 
-// GOOGLE AUTH — tokenClient se inicializa una sola vez cuando la libreria carga
-function initGoogleClient() {
-  if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) return;
+// GOOGLE AUTH
+function doAuth() {
+  if (CLIENT_ID === "PEGAR_CLIENT_ID_AQUI") {
+    showToast('Configura CLIENT_ID en el código antes de usar Google login', 'err');
+    return;
+  }
+  if (typeof google === 'undefined' || !google.accounts) {
+    showToast('La librería de Google aún no cargó. Intenta en un momento.', 'err');
+    return;
+  }
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: CLIENT_ID,
     scope: "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email",
     callback: async (response) => {
       if (response.error) {
-        showToast('Error Google: ' + response.error, 'err');
+        showToast('Error al autenticar con Google: ' + response.error, 'err');
         return;
       }
       accessToken = response.access_token;
-      let userEmail = 'usuario@google.com';
+      // Obtener email del usuario autenticado
+      let userEmail = 'google-user@google.com';
       try {
         const r = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
           headers: { Authorization: 'Bearer ' + accessToken }
         });
         const info = await r.json();
         userEmail = info.email || userEmail;
-      } catch(e) { /* usar email generico */ }
+      } catch(e) { /* continuar con email genérico */ }
+      // Verificar si el email está en la lista de admins
       const admins = getCfg('admin_emails', ['admin@guatape.gov.co']);
       const isAdmin = admins.map(e => e.toLowerCase()).includes(userEmail.toLowerCase());
       startApp(isAdmin ? 'admin' : 'visitor', userEmail);
-      showToast('Sesion iniciada como ' + userEmail, 'ok');
+      showToast('✅ Sesión iniciada como ' + userEmail, 'ok');
     }
   });
-}
-
-// doAuth se llama directamente desde onclick — debe ser sincrono para que el popup no sea bloqueado
-function doAuth() {
-  if (!tokenClient) initGoogleClient();
-  if (!tokenClient) {
-    showToast('La libreria de Google no cargo. Recarga la pagina.', 'err');
-    return;
-  }
-  tokenClient.requestAccessToken({ prompt: '' });
+  tokenClient.requestAccessToken();
 }
 
 function saveToSheets(data) {
@@ -1589,17 +1589,9 @@ async function seedIfEmpty() {
 window.addEventListener('DOMContentLoaded', async () => {
   await initDB();
   await seedIfEmpty();
+  // Enter on login
   document.getElementById('login-pass').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
   document.getElementById('visitor-pass').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
-  // Inicializar Google tokenClient cuando la libreria este lista
-  if (typeof google !== 'undefined' && google.accounts) {
-    initGoogleClient();
-  } else {
-    // La libreria GSI carga async — esperar a que este disponible
-    window.addEventListener('load', () => {
-      setTimeout(initGoogleClient, 500);
-    });
-  }
 });
 </script>
 </body>
