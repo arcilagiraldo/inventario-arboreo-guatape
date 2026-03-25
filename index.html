@@ -544,6 +544,19 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 
     <!-- ─ CONFIGURACIÓN ─ -->
     <div id="view-config" style="display:none;">
+
+      <div class="config-card">
+        <h3>⚡ Acciones Rápidas</h3>
+        <p>Sincroniza y exporta el inventario completo desde aquí:</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn-primary" onclick="syncAll()" style="gap:6px;">☁️ Sincronizar con Google Sheets</button>
+          <button class="btn-secondary" onclick="exportCSV()">📥 Descargar CSV</button>
+          <button class="btn-secondary" onclick="exportPDF()">📄 Descargar PDF</button>
+          <button class="btn-secondary" onclick="syncDrive()">📂 Sincronizar con Drive</button>
+        </div>
+        <div id="sync-quick-result" style="margin-top:10px; font-size:13px;"></div>
+      </div>
+
       <div class="config-card">
         <h3>🔗 Sincronización con Google Sheets</h3>
         <p>Pega la URL de tu Google Apps Script Web App para sincronizar automáticamente el inventario:</p>
@@ -1000,14 +1013,20 @@ async function renderDashboard() {
   const tbody = document.getElementById('urgent-tbody');
   tbody.innerHTML = urgent.length === 0
     ? '<tr><td colspan="5" style="text-align:center;color:var(--gris-texto);padding:20px;">✅ Sin árboles en estado crítico</td></tr>'
-    : urgent.map(i=>`
-      <tr class="urgent-row" onclick="openIndividuoModal(${i.id})" title="Editar este árbol">
-        <td><b>#${i.id}</b></td>
-        <td>${i.nombre}${i.cientifico?'<br><small style="color:var(--gris-texto);font-style:italic;">'+i.cientifico+'</small>':''}</td>
-        <td>${sMap[i.sectorId]||'—'}</td>
-        <td>${semaforoHTML(i.estado)}</td>
-        <td><span class="accion-badge accion-${i.accion}">${accionLabel(i.accion)}</span></td>
-      </tr>`).join('');
+    : urgent.map(i=>{
+        const tr = '<tr class="urgent-row" data-id="'+i.id+'" title="Editar este árbol">'
+          +'<td><b>#'+i.id+'</b></td>'
+          +'<td>'+i.nombre+(i.cientifico?'<br><small style="color:var(--gris-texto);font-style:italic;">'+i.cientifico+'</small>':'')+'</td>'
+          +'<td>'+(sMap[i.sectorId]||'—')+'</td>'
+          +'<td>'+semaforoHTML(i.estado)+'</td>'
+          +'<td><span class="accion-badge accion-'+i.accion+'">'+accionLabel(i.accion)+'</span></td>'
+          +'</tr>';
+        return tr;
+      }).join('');
+  // Attach click handlers to urgent rows
+  tbody.querySelectorAll('.urgent-row').forEach(tr => {
+    tr.addEventListener('click', () => openIndividuoModal(parseInt(tr.dataset.id)));
+  });
 }
 
 function filtrarInventario(estado) {
@@ -1248,8 +1267,9 @@ async function renderMapa() {
 
   if (!mapaLeaflet) {
     mapaLeaflet = L.map('mapa').setView([6.2320, -75.1540], 15);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors', maxZoom: 19
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+      subdomains: 'abcd', maxZoom: 20
     }).addTo(mapaLeaflet);
   } else {
     mapaLeaflet.eachLayer(l => { if (l instanceof L.Marker || l instanceof L.CircleMarker) mapaLeaflet.removeLayer(l); });
@@ -1622,7 +1642,7 @@ function initGoogleClient() {
   if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) return;
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: CLIENT_ID,
-    scope: "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email",
+    scope: "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file",
     callback: async (response) => {
       if (response.error) {
         showToast('Error Google: ' + response.error, 'err');
@@ -1759,7 +1779,7 @@ function copyGASCode() {
 }
 
 // ══════════════════════════════════════════════
-//  EXPORT CSV
+//  EXPORT CSV / PDF / DRIVE
 // ══════════════════════════════════════════════
 async function exportCSV() {
   const individuos = await dbGetAll('individuos');
@@ -1776,6 +1796,95 @@ async function exportCSV() {
   a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
   a.download = 'inventario_arboles_guatape.csv';
   a.click();
+}
+
+async function exportPDF() {
+  const individuos = await dbGetAll('individuos');
+  const sectores   = await dbGetAll('sectores');
+  const sMap = {}; sectores.forEach(s=>sMap[s.id]=s.nombre);
+
+  let html2 = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>Inventario Árboles Guatapé 2025</title>
+  <style>
+    body{font-family:Arial,sans-serif;font-size:12px;margin:20px;color:#1a1a18;}
+    h1{color:#1b4332;font-size:18px;margin-bottom:4px;}
+    h2{color:#2d6a4f;font-size:13px;margin:16px 0 6px;border-bottom:2px solid #2d6a4f;padding-bottom:3px;}
+    p{font-size:11px;color:#5a5550;margin:0 0 12px;}
+    table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:11px;}
+    th{background:#1b4332;color:white;padding:6px 8px;text-align:left;}
+    td{padding:5px 8px;border-bottom:1px solid #e8e4dc;}
+    tr:nth-child(even)td{background:#f8f4ec;}
+    .badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;}
+    .verde{background:#d8f3dc;color:#40916c;}
+    .amarillo{background:#fff3cd;color:#b5770a;}
+    .rojo{background:#ffe0e3;color:#e63946;}
+    @media print{body{margin:10px;}}
+  </style></head><body>
+  <h1>🌿 Inventario Arbóreo — Espacio Público Guatapé 2025</h1>
+  <p>Generado: ${new Date().toLocaleDateString('es-CO')} | Total registros: ${individuos.length}</p>`;
+
+  sectores.forEach(s => {
+    const inds = individuos.filter(i=>i.sectorId===s.id);
+    if (!inds.length) return;
+    html2 += `<h2>📍 ${s.nombre} ${s.area?'('+s.area+' m²)':''}</h2>`;
+    html2 += `<table><thead><tr><th>#</th><th>Nombre Común</th><th>Nombre Científico</th><th>Cantidad</th><th>Estado</th><th>Acción</th><th>Observaciones</th></tr></thead><tbody>`;
+    inds.forEach((i,n)=>{
+      const estadoClass = i.estado||'verde';
+      const estadoLabel = {verde:'Bueno',amarillo:'Regular',rojo:'Crítico'}[estadoClass]||estadoClass;
+      html2 += `<tr><td>${n+1}</td><td><b>${i.nombre}</b></td><td><i>${i.cientifico||'—'}</i></td><td style="text-align:center">${i.cantidad||1}</td><td><span class="badge ${estadoClass}">${estadoLabel}</span></td><td>${accionLabel(i.accion)}</td><td>${i.obs||'—'}</td></tr>`;
+    });
+    html2 += `</tbody></table>`;
+  });
+  html2 += `</body></html>`;
+
+  const win = window.open('','_blank');
+  if (!win) { showToast('Permite ventanas emergentes para descargar PDF','err'); return; }
+  win.document.write(html2);
+  win.document.close();
+  setTimeout(()=>{ win.print(); }, 400);
+}
+
+async function syncDrive() {
+  if (!accessToken) {
+    showToast('Inicia sesión con Google primero para sincronizar con Drive','err');
+    return;
+  }
+  const individuos = await dbGetAll('individuos');
+  const sectores   = await dbGetAll('sectores');
+  const sMap = {}; sectores.forEach(s=>sMap[s.id]=s.nombre);
+
+  // Build CSV content
+  const rows = [['ID','Nombre Común','Nombre Científico','Sector','Cantidad','Estado','Acción','Observaciones','Latitud','Longitud','Fecha']];
+  individuos.forEach(i=>{
+    rows.push([i.id, i.nombre, i.cientifico||'', sMap[i.sectorId]||'', i.cantidad||1,
+      i.estado, accionLabel(i.accion), (i.obs||'').replace(/,/g,';'), i.lat||'', i.lng||'', i.updatedAt||'']);
+  });
+  const csv = '﻿' + rows.map(r=>r.map(c=>'"'+c+'"').join(',')).join('
+');
+  const blob = new Blob([csv], {type:'text/csv'});
+
+  showSyncStatus('Subiendo a Google Drive...');
+  try {
+    const meta = JSON.stringify({name:'inventario_arboles_guatape_'+new Date().toISOString().slice(0,10)+'.csv', mimeType:'text/csv'});
+    const formData = new FormData();
+    formData.append('metadata', new Blob([meta],{type:'application/json'}));
+    formData.append('file', blob);
+    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method:'POST',
+      headers:{ Authorization:'Bearer '+accessToken },
+      body: formData
+    });
+    const json = await res.json();
+    if (json.id) {
+      showToast('📂 Archivo subido a Google Drive correctamente','ok');
+      document.getElementById('sync-quick-result').innerHTML = '<span style="color:var(--semaforo-verde)">✅ Subido a Drive: '+json.name+'</span>';
+    } else {
+      showToast('Error al subir a Drive: '+(json.error&&json.error.message||'desconocido'),'err');
+    }
+  } catch(e) {
+    showToast('No se pudo conectar con Google Drive','err');
+  }
+  hideSyncStatus();
 }
 
 // ══════════════════════════════════════════════
@@ -1877,104 +1986,117 @@ function jsonResponse(obj) {
 // ══════════════════════════════════════════════
 const DATOS_INICIALES = {
   sectores: [
-    { id:1, nombre:'Malecón San Juan del Puerto', area:'Zona principal', ubicacion:'Malecón principal', desc:'Uno de los sitios emblemáticos más visitados del municipio.' },
-    { id:2, nombre:'Parque de los Patos', area:'4.005', ubicacion:'Calles 32 y 29A', desc:'Parque con rica diversidad de especies.' },
-    { id:3, nombre:'Parque Frente al Hospital', area:'139', ubicacion:'Calle 31A con Carrera 23A', desc:'' },
-    { id:4, nombre:'Centro Día Gerontológico', area:'74,45', ubicacion:'Calle 31C con Carreras 23-24', desc:'' },
-    { id:5, nombre:'Zona Verde El Asilo', area:'942', ubicacion:'Calle 31 con Carreras 23A-24', desc:'' },
-    { id:6, nombre:'Parque Principal', area:'421,51', ubicacion:'Calles 30-31 con Carreras 30-31', desc:'' },
-    { id:7, nombre:'Sector El Recreo', area:'2.143', ubicacion:'Calle 28 entre Carreras 37 y 35B', desc:'' },
-    { id:8, nombre:'Sector La Cancha', area:'7.333', ubicacion:'Zona amplia', desc:'' },
-    { id:9, nombre:'Sector Araucarias', area:'432', ubicacion:'Calle 31 con Carrera 27', desc:'' },
+    { id:1,  nombre:'Malecón Nuevo — Parque San Juan del Puerto', area:'Zona principal', ubicacion:'Malecón principal', desc:'Uno de los sitios emblémticos más visitados del municipio. Diversidad de especies arbóreas en zonas verdes.' },
+    { id:2,  nombre:'Antiguo Malecón', area:'', ubicacion:'Zona antiguo malecón', desc:'Zona del antiguo malecón con guayacanes, chefleras y fraxinus.' },
+    { id:3,  nombre:'Parque de los Patos', area:'4.005', ubicacion:'Calles 32 y 29A', desc:'Parque con rica diversidad de especies.' },
+    { id:4,  nombre:'Parque Frente al Hospital', area:'139', ubicacion:'Calle 31A con Carrera 23A', desc:'' },
+    { id:5,  nombre:'Centro Día Gerontológico', area:'74,45', ubicacion:'Calle 31C con Carreras 23-24', desc:'' },
+    { id:6,  nombre:'Zona Verde El Asilo', area:'942', ubicacion:'Calle 31 con Carreras 23A-24', desc:'' },
+    { id:7,  nombre:'Parque Principal', area:'421,51', ubicacion:'Calles 30-31 con Carreras 30-31', desc:'' },
+    { id:8,  nombre:'Sector El Recreo', area:'2.143', ubicacion:'Calle 28 entre Carreras 37 y 35B', desc:'' },
+    { id:9,  nombre:'Sector La Cancha', area:'7.333', ubicacion:'Zona amplia', desc:'' },
+    { id:10, nombre:'Sector Araucarias', area:'432', ubicacion:'Calle 31 con Carrera 27', desc:'' },
   ],
   individuos: [
-    // Malecón (sectorId:1)
-    {id:1,nombre:'Chirlo Virlo',cientifico:'',sectorId:1,cantidad:3,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:2,nombre:'Arrayán',cientifico:'Myrtus communis',sectorId:1,cantidad:6,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:3,nombre:'Cedro',cientifico:'Cedrela odorata',sectorId:1,cantidad:1,estado:'verde',accion:'normal',obs:'',lat:'',lng:'',fotos:[]},
-    {id:4,nombre:'Senna Siamea',cientifico:'Senna siamea',sectorId:1,cantidad:7,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:5,nombre:'Guayacán',cientifico:'Handroanthus chrysanthus',sectorId:1,cantidad:3,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:6,nombre:'Cotoneaster Pannosus',cientifico:'Cotoneaster pannosus',sectorId:1,cantidad:1,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:7,nombre:'Yarumo',cientifico:'Cecropia sp.',sectorId:1,cantidad:4,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:8,nombre:'Pino Romerón',cientifico:'Retrophyllum rospigliosii',sectorId:1,cantidad:7,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:9,nombre:'Chagualo',cientifico:'Clusia elliptica',sectorId:1,cantidad:2,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:10,nombre:'Guayabo',cientifico:'Psidium guajava',sectorId:1,cantidad:3,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:11,nombre:'7 Cueros Mexicano',cientifico:'Tibouchina lepidota',sectorId:1,cantidad:9,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:12,nombre:'Uvito',cientifico:'',sectorId:1,cantidad:3,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:13,nombre:'Coralillo',cientifico:'Hamelia patens',sectorId:1,cantidad:3,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:14,nombre:'Aliso',cientifico:'Alnus acuminata',sectorId:1,cantidad:8,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:15,nombre:'Guamo',cientifico:'Inga edulis',sectorId:1,cantidad:5,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:16,nombre:'Palma Cola de Zorro',cientifico:'Wodyetia bifurcata',sectorId:1,cantidad:7,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:17,nombre:'Drago (Croton)',cientifico:'Croton sp.',sectorId:1,cantidad:8,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:18,nombre:'Callistemon',cientifico:'Callistemon sp.',sectorId:1,cantidad:6,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:19,nombre:'Sarro',cientifico:'Cyathea sp.',sectorId:1,cantidad:27,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:20,nombre:'Palo de María',cientifico:'',sectorId:1,cantidad:7,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:21,nombre:'Magnolia',cientifico:'Magnolia sp.',sectorId:1,cantidad:7,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:22,nombre:'Colorín Amarillo',cientifico:'',sectorId:1,cantidad:4,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:23,nombre:'Carbonero',cientifico:'',sectorId:1,cantidad:8,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:24,nombre:'Sapote de Sevilla',cientifico:'',sectorId:1,cantidad:5,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:25,nombre:'Palma McArthur',cientifico:'Ptychosperma macarthurii',sectorId:1,cantidad:2,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:26,nombre:'Cajeto',cientifico:'',sectorId:1,cantidad:4,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:27,nombre:'Evano',cientifico:'',sectorId:1,cantidad:5,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:28,nombre:'Magnolia Figo',cientifico:'Michelia figo',sectorId:1,cantidad:1,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:29,nombre:'Guayabo Jaboticaba',cientifico:'Plinia cauliflora',sectorId:1,cantidad:2,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    // Parque los Patos (sectorId:2)
-    {id:30,nombre:'Palma Payanesa',cientifico:'',sectorId:2,cantidad:40,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:31,nombre:'Guayacán Rosado',cientifico:'Handroanthus roseus',sectorId:2,cantidad:4,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:32,nombre:'Cheflera',cientifico:'Schefflera sp.',sectorId:2,cantidad:1,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:33,nombre:'Eugenio',cientifico:'Eugenia sp.',sectorId:2,cantidad:1,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:34,nombre:'Guayacán Pequeño',cientifico:'',sectorId:2,cantidad:20,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:35,nombre:'Carbonero Pequeño',cientifico:'',sectorId:2,cantidad:10,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:36,nombre:'Balso Pequeño',cientifico:'Ochroma pyramidale',sectorId:2,cantidad:9,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:37,nombre:'Pino Romerón Pequeño',cientifico:'',sectorId:2,cantidad:8,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    // Hospital (sectorId:3)
-    {id:38,nombre:'Azalea',cientifico:'Rhododendron sp.',sectorId:3,cantidad:2,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:39,nombre:'San Joaquín',cientifico:'',sectorId:3,cantidad:3,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:40,nombre:'Guayacán Nativo',cientifico:'',sectorId:3,cantidad:1,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    // Gerontológico (sectorId:4)
-    {id:41,nombre:'Palma',cientifico:'',sectorId:4,cantidad:5,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:42,nombre:'Guayabo Nativo',cientifico:'',sectorId:4,cantidad:1,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:43,nombre:'Guayacán',cientifico:'',sectorId:4,cantidad:2,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    // Asilo (sectorId:5)
-    {id:44,nombre:'Tulipán Africano',cientifico:'Spathodea campanulata',sectorId:5,cantidad:9,estado:'amarillo',accion:'programado',obs:'Especie invasora - evaluar manejo',lat:'',lng:'',fotos:[]},
-    {id:45,nombre:'Chachafruto',cientifico:'Erythrina edulis',sectorId:5,cantidad:1,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    // Parque Principal (sectorId:6)
-    {id:46,nombre:'Tulipán Africano',cientifico:'Spathodea campanulata',sectorId:6,cantidad:5,estado:'amarillo',accion:'programado',obs:'Especie invasora - evaluar',lat:'',lng:'',fotos:[]},
-    {id:47,nombre:'Guayacán Rosado',cientifico:'',sectorId:6,cantidad:3,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:48,nombre:'Magnolio',cientifico:'Magnolia sp.',sectorId:6,cantidad:3,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:49,nombre:'Ceiba',cientifico:'Ceiba pentandra',sectorId:6,cantidad:2,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:50,nombre:'Acacia',cientifico:'Acacia sp.',sectorId:6,cantidad:1,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:51,nombre:'Carbonero',cientifico:'',sectorId:6,cantidad:2,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:52,nombre:'Sueldo',cientifico:'',sectorId:6,cantidad:1,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    // El Recreo (sectorId:7)
-    {id:53,nombre:'Sueldo',cientifico:'',sectorId:7,cantidad:3,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    // La Cancha (sectorId:8)
-    {id:54,nombre:'Palma Reina',cientifico:'Roystonea regia',sectorId:8,cantidad:3,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:55,nombre:'Palma Payanesa',cientifico:'',sectorId:8,cantidad:44,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:56,nombre:'Chirlo Virlo',cientifico:'',sectorId:8,cantidad:2,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:57,nombre:'Urapán',cientifico:'Fraxinus chinensis',sectorId:8,cantidad:1,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:58,nombre:'Chagualo',cientifico:'Clusia elliptica',sectorId:8,cantidad:2,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:59,nombre:'Guayabo Nativo',cientifico:'',sectorId:8,cantidad:6,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:60,nombre:'Pino Romerón',cientifico:'',sectorId:8,cantidad:3,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:61,nombre:'Cinco Dedos',cientifico:'',sectorId:8,cantidad:1,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:62,nombre:'Eugenio',cientifico:'Eugenia sp.',sectorId:8,cantidad:7,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:63,nombre:'Guayabo Jaboticaba',cientifico:'Plinia cauliflora',sectorId:8,cantidad:5,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:64,nombre:'Guayacán',cientifico:'',sectorId:8,cantidad:6,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    // Araucarias (sectorId:9)
-    {id:65,nombre:'Pino Romerón',cientifico:'',sectorId:9,cantidad:6,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:66,nombre:'Carbonero',cientifico:'',sectorId:9,cantidad:3,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:67,nombre:'Flor de Mayo',cientifico:'Brownea ariza',sectorId:9,cantidad:2,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:68,nombre:'Tulipán Africano',cientifico:'Spathodea campanulata',sectorId:9,cantidad:2,estado:'amarillo',accion:'programado',obs:'Especie invasora',lat:'',lng:'',fotos:[]},
-    {id:69,nombre:'Níspero',cientifico:'Eriobotrya japonica',sectorId:9,cantidad:1,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
-    {id:70,nombre:'Guayacán',cientifico:'',sectorId:9,cantidad:2,estado:'verde',accion:'sin-novedad',obs:'',lat:'',lng:'',fotos:[]},
+    // ─── Malecón Nuevo (sectorId:1) ───
+    {id:1, nombre:'Chirlo Virlo',           cientifico:'',                        sectorId:1, cantidad:3,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:2, nombre:'Arrayán',                 cientifico:'Myrtus communis',           sectorId:1, cantidad:6,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:3, nombre:'Cedro',                  cientifico:'Cedrela odorata',           sectorId:1, cantidad:1,  estado:'verde',   accion:'normal',      obs:'', lat:'', lng:'', fotos:[]},
+    {id:4, nombre:'Senna Siamea',           cientifico:'Senna siamea',              sectorId:1, cantidad:7,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:5, nombre:'Guayacán',               cientifico:'Handroanthus chrysanthus',  sectorId:1, cantidad:3,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:6, nombre:'Cotoneaster Pannosus',   cientifico:'Cotoneaster pannosus',      sectorId:1, cantidad:1,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:7, nombre:'Yarumo',                 cientifico:'Cecropia sp.',              sectorId:1, cantidad:4,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:8, nombre:'Pino Romerón',           cientifico:'Retrophyllum rospigliosii', sectorId:1, cantidad:7,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:9, nombre:'Chagualo',               cientifico:'Clusia elliptica',          sectorId:1, cantidad:2,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:10,nombre:'Guayabo',                cientifico:'Psidium guajava',           sectorId:1, cantidad:3,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:11,nombre:'7 Cueros Mexicano',      cientifico:'Tibouchina lepidota',       sectorId:1, cantidad:9,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:12,nombre:'Uvito',                  cientifico:'',                          sectorId:1, cantidad:3,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:13,nombre:'Coralillo',              cientifico:'Hamelia patens',            sectorId:1, cantidad:3,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:14,nombre:'Aliso',                  cientifico:'Alnus acuminata',           sectorId:1, cantidad:8,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:15,nombre:'Guamo',                  cientifico:'Inga edulis',               sectorId:1, cantidad:5,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:16,nombre:'Palma Cola de Zorro',    cientifico:'Wodyetia bifurcata',        sectorId:1, cantidad:7,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:17,nombre:'Drago (Croton)',         cientifico:'Croton sp.',                sectorId:1, cantidad:8,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:18,nombre:'Callistemon',            cientifico:'Callistemon sp.',           sectorId:1, cantidad:6,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:19,nombre:'Sarro',                  cientifico:'Cyathea sp.',               sectorId:1, cantidad:27, estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:20,nombre:'Palo de María',          cientifico:'',                          sectorId:1, cantidad:7,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:21,nombre:'Magnolia',               cientifico:'Magnolia sp.',              sectorId:1, cantidad:7,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:22,nombre:'Colorín Amarillo',        cientifico:'',                          sectorId:1, cantidad:4,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:23,nombre:'Carbonero',              cientifico:'',                          sectorId:1, cantidad:8,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:24,nombre:'Sapote de Sevilla',      cientifico:'',                          sectorId:1, cantidad:5,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:25,nombre:'Palma McArthur',         cientifico:'Ptychosperma macarthurii',  sectorId:1, cantidad:2,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:26,nombre:'Cajeto',                 cientifico:'',                          sectorId:1, cantidad:4,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:27,nombre:'Evano',                  cientifico:'',                          sectorId:1, cantidad:5,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:28,nombre:'Magnolia Figo',          cientifico:'Michelia figo',             sectorId:1, cantidad:1,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:29,nombre:'Guayabo Jaboticaba',     cientifico:'Plinia cauliflora',         sectorId:1, cantidad:2,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    // ─── Antiguo Malecón (sectorId:2) ───
+    {id:30,nombre:'Guayacán Rosado',         cientifico:'Handroanthus roseus',       sectorId:2, cantidad:30, estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:31,nombre:'Tulipán Africano',         cientifico:'Spathodea campanulata',     sectorId:2, cantidad:2,  estado:'amarillo',accion:'programado',  obs:'Especie invasora - evaluar manejo', lat:'', lng:'', fotos:[]},
+    {id:32,nombre:'Cheflera',               cientifico:'Schefflera sp.',            sectorId:2, cantidad:2,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:33,nombre:'Fraxinus — Urapán',       cientifico:'Fraxinus chinensis',        sectorId:2, cantidad:1,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    // ─── Parque de los Patos (sectorId:3) ───
+    {id:34,nombre:'Palma Payanesa',         cientifico:'',                          sectorId:3, cantidad:40, estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:35,nombre:'Guayacán Rosado',         cientifico:'Handroanthus roseus',       sectorId:3, cantidad:4,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:36,nombre:'Cheflera',               cientifico:'Schefflera sp.',            sectorId:3, cantidad:1,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:37,nombre:'Eugenio',                cientifico:'Eugenia sp.',               sectorId:3, cantidad:1,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:38,nombre:'Guayacán Pequeño',        cientifico:'',                          sectorId:3, cantidad:20, estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:39,nombre:'Carbonero Pequeño',       cientifico:'',                          sectorId:3, cantidad:10, estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:40,nombre:'Balso Pequeño',           cientifico:'Ochroma pyramidale',        sectorId:3, cantidad:9,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:41,nombre:'Pino Romerón Pequeño',    cientifico:'',                          sectorId:3, cantidad:8,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    // ─── Parque Frente al Hospital (sectorId:4) ───
+    {id:42,nombre:'Azalea',                 cientifico:'Rhododendron sp.',          sectorId:4, cantidad:2,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:43,nombre:'San Joaquín',             cientifico:'',                          sectorId:4, cantidad:3,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:44,nombre:'Guayacán Nativo',          cientifico:'',                          sectorId:4, cantidad:1,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    // ─── Centro Día Gerontológico (sectorId:5) ───
+    {id:45,nombre:'Palma',                  cientifico:'',                          sectorId:5, cantidad:5,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:46,nombre:'Guayabo Nativo',         cientifico:'',                          sectorId:5, cantidad:1,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:47,nombre:'Guayacán',               cientifico:'',                          sectorId:5, cantidad:2,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    // ─── Zona Verde El Asilo (sectorId:6) ───
+    {id:48,nombre:'Tulipán Africano',         cientifico:'Spathodea campanulata',     sectorId:6, cantidad:9,  estado:'amarillo',accion:'programado',  obs:'Especie invasora - evaluar manejo', lat:'', lng:'', fotos:[]},
+    {id:49,nombre:'Chachafruto',            cientifico:'Erythrina edulis',          sectorId:6, cantidad:1,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    // ─── Parque Principal (sectorId:7) ───
+    {id:50,nombre:'Tulipán Africano',         cientifico:'Spathodea campanulata',     sectorId:7, cantidad:5,  estado:'amarillo',accion:'programado',  obs:'Especie invasora - evaluar', lat:'', lng:'', fotos:[]},
+    {id:51,nombre:'Guayacán Rosado',          cientifico:'',                          sectorId:7, cantidad:3,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:52,nombre:'Magnolio',               cientifico:'Magnolia sp.',              sectorId:7, cantidad:3,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:53,nombre:'Ceiba',                  cientifico:'Ceiba pentandra',           sectorId:7, cantidad:2,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:54,nombre:'Acacia',                 cientifico:'Acacia sp.',                sectorId:7, cantidad:1,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:55,nombre:'Carbonero',              cientifico:'',                          sectorId:7, cantidad:2,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:56,nombre:'Sueldo',                 cientifico:'',                          sectorId:7, cantidad:1,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    // ─── Sector El Recreo (sectorId:8) ───
+    {id:57,nombre:'Sueldo',                 cientifico:'',                          sectorId:8, cantidad:3,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    // ─── Sector La Cancha (sectorId:9) ───
+    {id:58,nombre:'Palma Reina',            cientifico:'Roystonea regia',           sectorId:9, cantidad:3,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:59,nombre:'Palma Payanesa',         cientifico:'',                          sectorId:9, cantidad:44, estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:60,nombre:'Chirlo Virlo',           cientifico:'',                          sectorId:9, cantidad:2,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:61,nombre:'Urapán',                 cientifico:'Fraxinus chinensis',        sectorId:9, cantidad:1,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:62,nombre:'Chagualo',               cientifico:'Clusia elliptica',          sectorId:9, cantidad:2,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:63,nombre:'Guayabo Nativo',         cientifico:'',                          sectorId:9, cantidad:6,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:64,nombre:'Pino Romerón',           cientifico:'',                          sectorId:9, cantidad:3,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:65,nombre:'Cinco Dedos',            cientifico:'',                          sectorId:9, cantidad:1,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:66,nombre:'Eugenio',                cientifico:'Eugenia sp.',               sectorId:9, cantidad:7,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:67,nombre:'Guayabo Jaboticaba',     cientifico:'Plinia cauliflora',         sectorId:9, cantidad:5,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:68,nombre:'Guayacán',               cientifico:'',                          sectorId:9, cantidad:6,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    // ─── Sector Araucarias (sectorId:10) ───
+    {id:69,nombre:'Pino Romerón',           cientifico:'',                          sectorId:10,cantidad:6,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:70,nombre:'Carbonero',              cientifico:'',                          sectorId:10,cantidad:3,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:71,nombre:'Flor de Mayo',           cientifico:'Brownea ariza',             sectorId:10,cantidad:2,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:72,nombre:'Tulipán Africano',         cientifico:'Spathodea campanulata',     sectorId:10,cantidad:2,  estado:'amarillo',accion:'programado',  obs:'Especie invasora', lat:'', lng:'', fotos:[]},
+    {id:73,nombre:'Níspero',                 cientifico:'Eriobotrya japonica',       sectorId:10,cantidad:1,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
+    {id:74,nombre:'Guayacán',               cientifico:'',                          sectorId:10,cantidad:2,  estado:'verde',   accion:'sin-novedad', obs:'', lat:'', lng:'', fotos:[]},
   ]
-};
+}
 
 async function seedIfEmpty() {
-  const sectores = await dbGetAll('sectores');
-  if (sectores.length > 0) return; // ya tiene datos
+  // Forzar re-seed si la version de datos es anterior a la actual
+  const DATA_VERSION = '2025-v3';
+  const storedVersion = localStorage.getItem('data_version');
+  if (storedVersion === DATA_VERSION) return; // ya tiene la version correcta
+  // Limpiar datos anteriores y re-sembrar
+  const txS = db.transaction('sectores', 'readwrite'); txS.objectStore('sectores').clear();
+  const txI = db.transaction('individuos', 'readwrite'); txI.objectStore('individuos').clear();
+  await new Promise(r => txI.oncomplete = r);
   for (const s of DATOS_INICIALES.sectores) await dbPut('sectores', s);
   for (const i of DATOS_INICIALES.individuos) await dbPut('individuos', i);
+  localStorage.setItem('data_version', DATA_VERSION);
 }
 
 // ══════════════════════════════════════════════
