@@ -189,10 +189,10 @@ textarea{resize:vertical;min-height:64px;line-height:1.5;}
   <div class="view active" id="view-inicio">
     <div class="view-pad">
       <div class="stats-grid">
-        <div class="stat-card"><div class="stat-num" id="st-total">0</div><div class="stat-label">Árboles</div></div>
-        <div class="stat-card danger"><div class="stat-num" id="st-critico">0</div><div class="stat-label">Críticos</div></div>
-        <div class="stat-card warning"><div class="stat-num" id="st-riesgo">0</div><div class="stat-label">Riesgo</div></div>
-        <div class="stat-card gold"><div class="stat-num" id="st-interv">0</div><div class="stat-label">Intervenciones</div></div>
+        <div class="stat-card" style="cursor:pointer" onclick="goToList('todos')"><div class="stat-num" id="st-total">0</div><div class="stat-label">Árboles</div></div>
+        <div class="stat-card danger" style="cursor:pointer" onclick="goToList('critico')"><div class="stat-num" id="st-critico">0</div><div class="stat-label">Críticos</div></div>
+        <div class="stat-card warning" style="cursor:pointer" onclick="goToList('riesgo')"><div class="stat-num" id="st-riesgo">0</div><div class="stat-label">Riesgo</div></div>
+        <div class="stat-card gold" style="cursor:pointer" onclick="goToList('todos')"><div class="stat-num" id="st-interv">0</div><div class="stat-label">Intervenciones</div></div>
       </div>
       <div class="sec-title">⚠ Alertas</div>
       <div class="alert-list" id="alert-list"></div>
@@ -336,6 +336,19 @@ textarea{resize:vertical;min-height:64px;line-height:1.5;}
   <div class="view" id="view-lista">
     <div class="view-pad">
       <input type="text" id="search" placeholder="🔍 Buscar nombre, ID, sector..." oninput="renderList()" style="margin-bottom:10px">
+      <select id="filter-sector" onchange="renderList()" style="margin-bottom:10px">
+        <option value="">Todos los sectores</option>
+        <option value="ML">Malecón San Juan del Puerto</option>
+        <option value="AM">Antiguo Malecón</option>
+        <option value="PQ">Parque de los Patos</option>
+        <option value="HP">Parque Frente al Hospital</option>
+        <option value="CD">Centro Día Gerontológico</option>
+        <option value="AS">El Asilo</option>
+        <option value="PP">Parque Principal</option>
+        <option value="RE">El Recreo</option>
+        <option value="CA">Zona Deportiva</option>
+        <option value="AR">Sector Araucarias</option>
+      </select>
       <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
       <button class="bsm boutline" onclick="openBulk()" class="edit-only" style="font-size:.72rem;display:none">✏️ Editar en masa</button>
     </div>
@@ -671,8 +684,7 @@ function updateDash(){
     const total=codes.reduce((sum,k)=>sum+(sc[k]||0),0);
     const subfilas=codes.map(k=>{
       const cnt=sc[k]||0;
-      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px 7px 26px;border-top:1px solid rgba(122,182,72,.07)">'
-        +'<span style="font-size:.76rem;color:rgba(232,240,232,.65)">↳ '+SECTORES[k]+'</span>'
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px 7px 26px;border-top:1px solid rgba(122,182,72,.07);cursor:pointer" onclick="goToList(\'sector_'+k+'\')">'\n        +'<span style="font-size:.76rem;color:rgba(232,240,232,.65)">↳ '+SECTORES[k]+'</span>'
         +'<span style="background:rgba(122,182,72,.1);color:var(--lime);border-radius:20px;padding:2px 9px;font-size:.68rem;font-weight:700">'+cnt+' árbol'+(cnt!==1?'es':'')+'</span>'
         +'</div>';
     }).join('');
@@ -823,6 +835,32 @@ function resetForm(){
 }
 
 // LISTA
+function goToList(filter){
+  // Navigate to lista tab and apply filter
+  const listaTab=document.querySelectorAll('.nav-tab')[3];
+  showView('lista',listaTab);
+  if(filter.startsWith('sector_')){
+    // Set sector select and clear chip
+    const sec=filter.replace('sector_','');
+    const sel=document.getElementById('filter-sector');
+    if(sel)sel.value=sec;
+    activeChip='todos';
+    document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+    const todosChip=document.querySelector('.chip');
+    if(todosChip)todosChip.classList.add('active');
+  } else {
+    // Set chip filter
+    const sel=document.getElementById('filter-sector');
+    if(sel)sel.value='';
+    activeChip=filter;
+    document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+    document.querySelectorAll('.chip').forEach(c=>{
+      const fn=c.getAttribute('onclick')||'';
+      if(fn.includes("'"+filter+"'"))c.classList.add('active');
+    });
+  }
+  renderList();
+}
 function setChip(f,el){
   activeChip=f;
   document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
@@ -831,12 +869,15 @@ function setChip(f,el){
 function renderList(){
   const all=getA();
   const q=(document.getElementById('search')||{}).value?.toLowerCase()||'';
+  const sectorFilt=(document.getElementById('filter-sector')||{}).value||'';
   let f=all;
   if(activeChip==='critico')f=f.filter(a=>a.estado==='critico');
   else if(activeChip==='riesgo')f=f.filter(a=>a.estado==='riesgo');
   else if(activeChip==='sano')f=f.filter(a=>a.estado==='sano');
   else if(activeChip==='malecon')f=f.filter(a=>a.sector==='ML'||a.sector==='AM');
   else if(activeChip==='sin_gps')f=f.filter(a=>!a.lat||!a.lng);
+  else if(activeChip.startsWith('sector_'))f=f.filter(a=>a.sector===activeChip.replace('sector_',''));
+  if(sectorFilt)f=f.filter(a=>a.sector===sectorFilt);
   if(q)f=f.filter(a=>(a.nombre||'').toLowerCase().includes(q)||(a.id||'').toLowerCase().includes(q)||(SECTORES[a.sector]||'').toLowerCase().includes(q));
   const el=document.getElementById('tree-list');
   if(!f.length){el.innerHTML='<div class="empty-state"><div class="empty-icon">🌱</div><p>No hay árboles aquí.<br>Registra el primero con ➕</p></div>';return;}
